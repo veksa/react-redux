@@ -8,6 +8,7 @@ import {
   createReduxContextHook,
   useReduxContext as useDefaultReduxContext,
 } from './useReduxContext'
+import { useSyncExternalStoreWithSelector } from '../utils/useSyncExternalStoreWithSelector'
 
 /**
  * The frequency of development mode checks.

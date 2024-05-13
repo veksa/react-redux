@@ -1,6 +1,6 @@
 {
-  "name": "react-redux",
-  "version": "9.2.0",
+  "name": "@veksa/react-redux",
+  "version": "9.2.0-p1",
   "description": "Official React bindings for Redux",
   "keywords": [
     "react",
@@ -51,9 +51,9 @@
     "coverage": "codecov"
   },
   "peerDependencies": {
-    "@types/react": "^18.2.25 || ^19",
-    "react": "^18.0 || ^19",
-    "redux": "^5.0.0"
+    "@types/react": "^18.3 || ^19",
+    "react": "^18.3 || ^19",
+    "redux": "^5.0.1"
   },
   "peerDependenciesMeta": {
     "@types/react": {
@@ -64,8 +64,7 @@
     }
   },
   "dependencies": {
-    "@types/use-sync-external-store": "^0.0.6",
-    "use-sync-external-store": "^1.4.0"
+    "uuid": "^10.0.0"
   },
   "devDependencies": {
     "@microsoft/api-extractor": "^7.47.0",
@@ -77,6 +76,10 @@
     "@types/prop-types": "^15.7.12",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.1",
+    "@typescript-eslint/eslint-plugin": "^6.17.0",
+    "@typescript-eslint/parser": "^6.17.0",
+    "@types/uuid": "^10.0.0",
+    "babel-eslint": "^10.1.0",
     "codecov": "^3.8.3",
     "cross-env": "^7.0.3",
     "eslint": "^8.57.0",
