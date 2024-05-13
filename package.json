@@ -1,6 +1,6 @@
 {
-  "name": "react-redux",
-  "version": "9.1.2",
+  "name": "@veksa/react-redux",
+  "version": "9.1.2-p1",
   "description": "Official React bindings for Redux",
   "keywords": [
     "react",
@@ -63,8 +63,7 @@
     }
   },
   "dependencies": {
-    "@types/use-sync-external-store": "^0.0.3",
-    "use-sync-external-store": "^1.0.0"
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@babel/cli": "^7.12.1",
@@ -85,6 +84,7 @@
     "@types/node": "^20.11.6",
     "@types/prop-types": "^15.7.12",
     "@types/react": "18.2.25",
+    "@types/uuid": "^9.0.8",
     "@typescript-eslint/eslint-plugin": "^6.17.0",
     "@typescript-eslint/parser": "^6.17.0",
     "babel-eslint": "^10.1.0",
