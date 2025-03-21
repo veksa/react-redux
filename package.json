@@ -49,7 +49,8 @@
   "peerDependencies": {
     "@types/react": "^18.3 || ^19",
     "react": "^18.3 || ^19",
-    "redux": "^5.0.1"
+    "redux": "^5.0.1",
+    "uuid": "^11.1.0"
   },
   "peerDependenciesMeta": {
     "@types/react": {
@@ -58,9 +59,6 @@
     "redux": {
       "optional": true
     }
-  },
-  "dependencies": {
-    "uuid": "^10.0.0"
   },
   "devDependencies": {
     "@microsoft/api-extractor": "^7.47.0",
@@ -93,7 +91,8 @@
     "tsup": "^8.3.5",
     "typescript": "^5.8.2",
     "typescript-eslint": "^7.12.0",
+    "uuid": "^11.1.0",
     "vitest": "^1.6.0"
   },
-  "packageManager": "yarn@4.4.1"
+  "packageManager": "yarn@4.7.0"
 }
