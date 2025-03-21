@@ -1,6 +1,6 @@
 {
   "name": "@veksa/react-redux",
-  "version": "9.2.0-p4",
+  "version": "9.2.0-p5",
   "description": "Official React bindings for Redux",
   "keywords": [
     "react",
