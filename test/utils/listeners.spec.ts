@@ -3,30 +3,14 @@ import * as batchModule from '../../src/utils/batch'
 
 describe('listeners', () => {
   test('should notify listeners in one cycle with the same state', () => {
-    vi.spyOn(global, 'Date').mockImplementation(() => {
-      let count = 0
-
-      return {
-        getTime: () => {
-          if (count === 0) {
-            count++
-            return 0
-          }
-
-          if (count === 1) {
-            count++
-            return 1
-          }
-
-          if (count === 2) {
-            count++
-            return 10
-          }
-
-          return 100
-        }
-      } as unknown as Date
-    })
+    // Simulate the clock crossing the 5ms chunk budget so the second listener
+    // is deferred to a second chunk: 0 (finishTime=5), 1 (<5 -> fn1 runs),
+    // 10 (>=5 -> yield), 100... (second chunk runs fn2).
+    const times = [0, 1, 10, 100]
+    let count = 0
+    vi.spyOn(Date, 'now').mockImplementation(() =>
+      count < times.length ? times[count++] : 100
+    )
 
     const listeners = createListenerCollection()
 

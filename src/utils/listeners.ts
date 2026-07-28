@@ -12,9 +12,12 @@ export type Listener = {
 // well as nesting subscriptions of descendant components, so that we can ensure the
 // ancestor components re-render before descendants
 
-export function createListenerCollection() {
-  const date = new Date()
+// Max time (ms) a single notification chunk is allowed to run before yielding
+// back to the browser. Splitting the pass keeps a large store from producing a
+// long task that blocks input / hurts INP.
+const CHUNK_BUDGET_MS = 5
 
+export function createListenerCollection() {
   let first: Listener | null = null
   let last: Listener | null = null
 
@@ -29,13 +32,13 @@ export function createListenerCollection() {
 
       const scheduleNextChunk = () => {
         batch(() => {
-          const finishTime = date.getTime() + 5
+          const finishTime = Date.now() + CHUNK_BUDGET_MS
 
           if (!current) {
             current = first
           }
 
-          while (current && date.getTime() < finishTime) {
+          while (current && Date.now() < finishTime) {
             current.callback()
             current = current.next
           }
