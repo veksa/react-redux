@@ -1,32 +1,27 @@
 import { createListenerCollection } from '../../src/utils/listeners'
-import * as batchModule from '../../src/utils/batch'
+import * as scheduler from '../../src/utils/scheduler'
 
 describe('listeners', () => {
   test('should notify listeners in one cycle with the same state', () => {
-    // Simulate the clock crossing the 5ms chunk budget so the second listener
-    // is deferred to a second chunk: 0 (finishTime=5), 1 (<5 -> fn1 runs),
-    // 10 (>=5 -> yield), 100... (second chunk runs fn2).
-    const times = [0, 1, 10, 100]
-    let count = 0
-    vi.spyOn(Date, 'now').mockImplementation(() =>
-      count < times.length ? times[count++] : 100
-    )
+    const state = { a: 0 }
+
+    // Run each scheduled chunk synchronously, bumping the "version" of the
+    // state per chunk so we can prove listeners in different chunks observe the
+    // state as it was when their chunk ran.
+    vi.spyOn(scheduler, 'scheduleCallback').mockImplementation(callback => {
+      state.a = state.a + 1
+      callback()
+    })
+    // Yield after every listener → exactly one listener per chunk.
+    vi.spyOn(scheduler, 'shouldYield').mockReturnValue(true)
 
     const listeners = createListenerCollection()
 
-    const state = { a: 0 }
+    const fn1Result = vi.fn()
+    const fn2Result = vi.fn()
 
-    vi.spyOn(batchModule, 'defaultNoopBatch').mockImplementation(callback => {
-      state.a = state.a + 1;
-
-      callback();
-    })
-
-    const fn1Result = vi.fn();
-    const fn2Result = vi.fn();
-
-    const fn1 = vi.fn(() => fn1Result({...state}))
-    const fn2 = vi.fn(() => fn2Result({...state}))
+    const fn1 = vi.fn(() => fn1Result({ ...state }))
+    const fn2 = vi.fn(() => fn2Result({ ...state }))
 
     listeners.subscribe(fn1)
     listeners.subscribe(fn2)
@@ -34,9 +29,9 @@ describe('listeners', () => {
     listeners.notify()
 
     expect(fn1).toBeCalledTimes(1)
-    expect(fn1Result).toBeCalledWith({a: 1});
+    expect(fn1Result).toBeCalledWith({ a: 1 })
     expect(fn2).toBeCalledTimes(1)
-    expect(fn2Result).toBeCalledWith({a: 2});
+    expect(fn2Result).toBeCalledWith({ a: 2 })
   })
 })
 
@@ -63,15 +58,11 @@ describe('listeners re-entrancy', () => {
 
     // Fake scheduler: capture each chunk instead of running it, so the test can
     // deterministically interleave a re-entrant notify() between chunks.
-    vi.spyOn(batchModule, 'defaultNoopBatch').mockImplementation(callback => {
+    vi.spyOn(scheduler, 'scheduleCallback').mockImplementation(callback => {
       scheduled.push(callback)
     })
-
-    // Fake clock advancing 3ms per read, so each 5ms chunk processes exactly
-    // one listener: finishTime = t+5; first read t+3 (< budget, run one), next
-    // read t+6 (>= budget, yield).
-    let clock = 0
-    vi.spyOn(Date, 'now').mockImplementation(() => (clock += 3))
+    // Yield after every listener → exactly one listener per chunk.
+    vi.spyOn(scheduler, 'shouldYield').mockReturnValue(true)
   })
 
   afterEach(() => {
@@ -140,5 +131,20 @@ describe('listeners re-entrancy', () => {
 
     // Exactly one extra pass, not one per notification.
     expect(order).toEqual(['a', 'b', 'a', 'b'])
+  })
+
+  test('always notifies at least one listener per chunk, even when shouldYield() is immediately true', () => {
+    // Pending input makes shouldYield() true from the very first check. The pass
+    // must still make progress (one listener per chunk) rather than reschedule
+    // forever without notifying anyone.
+    const collection = createListenerCollection()
+    const order: string[] = []
+    collection.subscribe(() => order.push('a'))
+    collection.subscribe(() => order.push('b'))
+
+    collection.notify()
+    flushAll()
+
+    expect(order).toEqual(['a', 'b'])
   })
 })
