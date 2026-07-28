@@ -120,3 +120,45 @@ iteration, a macrotask yield between chunks). Each cell is the median of 7 runs.
 `WORK = 4000` (≈ a few µs per subscriber, modeling a non-trivial memoized
 selector recompute + shallow-equality check). Absolute numbers scale with
 per-subscriber cost and hardware; the **shape** — flat vs. linear — does not.
+
+---
+
+## Appendix — parity with React's scheduler
+
+The batching idea is borrowed from React's `scheduler` package
+([`packages/scheduler/src/forks/Scheduler.js`][sched]). Worth stating clearly:
+the three defects this branch had to fix are **regressions in the adaptation** —
+React's scheduler does not have any of them, and there is nothing to upstream to
+React itself. The fixes bring `react-redux` in line with React's proven design.
+
+| Defect in the branch's first cut | How React's scheduler avoids it |
+|---|---|
+| **Frozen clock** — `const date = new Date()` sampled once, so the 5 ms budget never expires and the loop never yields | Resets `startTime = getCurrentTime()` on every task (`Scheduler.js:507`); `shouldYieldToHost` compares a **live** `getCurrentTime() - startTime` against `frameInterval` (`:464‑471`) |
+| **New `MessageChannel` + `uuid` per yield** | A single `channel` is created once at module init and reused via `port.postMessage(null)` (`:549‑554`) |
+| **Per-`notify()` cursor** → parallel re-entrant drains | `requestHostCallback` guards with `if (!isMessageLoopRunning)` (`:564`); leftover work re-schedules *itself* via `hasMoreWork` (`:519‑522`) |
+
+Our budget (`CHUNK_BUDGET_MS = 5`) is exactly React's `frameYieldMs = 5`
+(`SchedulerFeatureFlags.js:11`).
+
+Running the same workload under three strategies — the buggy original, the fixed
+branch, and React's `shouldYieldToHost` semantics — the fixed version tracks
+React exactly, while the frozen-clock original collapses to a single long task:
+
+| subscribers | `original` (frozen clock) | `fixed` (this branch) | `react` semantics |
+|------------:|--------------------------:|----------------------:|------------------:|
+|       1,000 |                 `2.6 ms`  |             `2.6 ms`  |         `2.7 ms`  |
+|      10,000 |                `26.4 ms`  |             `5.0 ms`  |         `5.0 ms`  |
+|      50,000 |               `337.0 ms`  |             `5.0 ms`  |         `5.0 ms`  |
+|     100,000 |               `684.3 ms`  |             `5.1 ms`  |         `5.1 ms`  |
+
+_(longest task, ms; median of 7 runs; `fixed` and `react` also produce the same
+chunk count — e.g. 136 vs 137 at 100k.)_ Reproduce with
+`node benchmark/vs-react-scheduler.mjs`.
+
+**One thing React does that this branch does not (yet):** React can yield
+*early*, before the 5 ms budget, when a paint is pending (`requestPaint` /
+`needsPaint`, `Scheduler.js:459‑462`, `474‑479`). `notify()` only yields on the
+time budget. That is a possible future refinement for `react-redux` — again, not
+a bug in React.
+
+[sched]: https://github.com/facebook/react/blob/main/packages/scheduler/src/forks/Scheduler.js
