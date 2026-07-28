@@ -1,4 +1,4 @@
-import { defaultNoopBatch as batch } from './batch'
+import { scheduleCallback, shouldYield } from './scheduler'
 
 export type VoidFunc = () => void
 
@@ -11,11 +11,6 @@ export type Listener = {
 // encapsulates the subscription logic for connecting a component to the redux store, as
 // well as nesting subscriptions of descendant components, so that we can ensure the
 // ancestor components re-render before descendants
-
-// Max time (ms) a single notification chunk is allowed to run before yielding
-// back to the browser. Splitting the pass keeps a large store from producing a
-// long task that blocks input / hurts INP.
-const CHUNK_BUDGET_MS = 5
 
 export function createListenerCollection() {
   let first: Listener | null = null
@@ -31,16 +26,19 @@ export function createListenerCollection() {
   let restartQueued = false
 
   const drainChunk = () => {
-    const finishTime = Date.now() + CHUNK_BUDGET_MS
-
-    while (current && Date.now() < finishTime) {
-      current.callback()
-      current = current.next
+    // Notify at least one listener before consulting shouldYield(), so the pass
+    // always makes progress — otherwise pending input (which yields early) could
+    // reschedule forever without notifying anyone.
+    if (current) {
+      do {
+        current.callback()
+        current = current.next
+      } while (current && !shouldYield())
     }
 
     if (current) {
-      // Budget exhausted mid-pass: yield to the browser, then resume from here.
-      batch(drainChunk)
+      // Deadline reached mid-pass: yield to the browser, then resume from here.
+      scheduleCallback(drainChunk)
       return
     }
 
@@ -49,7 +47,7 @@ export function createListenerCollection() {
       // every listener observes the latest state exactly once per pass.
       restartQueued = false
       current = first
-      batch(drainChunk)
+      scheduleCallback(drainChunk)
       return
     }
 
@@ -75,7 +73,7 @@ export function createListenerCollection() {
 
       isDraining = true
       current = first
-      batch(drainChunk)
+      scheduleCallback(drainChunk)
     },
 
     get() {
