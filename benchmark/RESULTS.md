@@ -155,10 +155,42 @@ _(longest task, ms; median of 7 runs; `fixed` and `react` also produce the same
 chunk count — e.g. 136 vs 137 at 100k.)_ Reproduce with
 `node benchmark/vs-react-scheduler.mjs`.
 
-**One thing React does that this branch does not (yet):** React can yield
-*early*, before the 5 ms budget, when a paint is pending (`requestPaint` /
-`needsPaint`, `Scheduler.js:459‑462`, `474‑479`). `notify()` only yields on the
-time budget. That is a possible future refinement for `react-redux` — again, not
-a bug in React.
+**Early yield on pending input (implemented).** React can yield *early*, before
+the 5 ms budget, when a paint is pending (`needsPaint` / `requestPaint`,
+`Scheduler.js:459‑462`, `474‑479`) — a signal set by React's own commit phase
+that a library doesn't have. `src/utils/scheduler.ts` reproduces that early
+yield for the one signal a library *does* have: `navigator.scheduling
+.isInputPending()`. An in-progress notification then releases the main thread
+the moment the user interacts, instead of holding it for the rest of the frame.
+Note this benefit is **browser-only** — Node has no `isInputPending`, so the
+benchmarks above (which cap at the 5 ms budget) don't reflect it; in a real
+browser the within-chunk wait drops from "up to 5 ms" toward "as soon as input
+registers."
 
 [sched]: https://github.com/facebook/react/blob/main/packages/scheduler/src/forks/Scheduler.js
+
+---
+
+## Responsiveness — worst-case input latency
+
+The metrics above measure task length. This measures the consequence directly:
+how long a user interaction that arrives **during** a notification pass has to
+wait before the main thread can service it.
+
+A high-frequency heartbeat (a stand-in for the event loop servicing an
+interaction) ticks throughout the run; the largest gap between ticks is the
+longest the main thread was blocked — i.e. the worst-case input latency. This is
+measured, not asserted (`benchmark/responsiveness.mjs`).
+
+| subscribers | `react-uSES` (synchronous) | `time-sliced` (this branch) | improvement |
+|------------:|---------------------------:|----------------------------:|------------:|
+|       1,000 |                  `2.6 ms`  |                   `2.8 ms`  |      ~0%    |
+|      10,000 |                 `26.2 ms`  |                   `5.0 ms`  |     −81%    |
+|      50,000 |                `133.1 ms`  |                   `5.1 ms`  |     −96%    |
+|     100,000 |                `265.9 ms`  |                   `5.1 ms`  |     −98%    |
+
+`react-uSES` models what react-redux does today on React's built-in
+`useSyncExternalStore`: the subscriber notification runs synchronously in one
+uninterrupted task, so an interaction can wait the full length of that task. The
+time-sliced pass keeps that wait at ~one frame no matter how many subscribers
+there are — and, in a browser, `isInputPending` trims it further still.
