@@ -1,7 +1,7 @@
 import { encodePathSegment } from './arrayKeys'
 import type { ArrayMeta } from './arrayKeys'
 import { SegmentIndex } from './coarseSegments'
-import type { CoarseSub } from './coarseSegments'
+import { DepIndex } from './pathDeps'
 import type { LeafObjectTracker, ProxyCache } from './trackingProxy'
 import type { PathKey, ReactiveSignal, SignalEngine } from './types'
 
@@ -53,7 +53,31 @@ export interface PathSignalRegistry {
 
   /** Coarse tier: top-level segment -> subscribers, for cheaply deciding
    *  which selectors a dispatch could affect before touching the deep graph. */
-  segmentIndex: SegmentIndex<CoarseSub>
+  segmentIndex: SegmentIndex
+
+  /** Fine tier: exact path key -> subscribers that read it. Turns the paths a
+   *  dispatch changed into the hooks that must re-evaluate. */
+  depIndex: DepIndex
+
+  /** Path keys whose signal fired during the current reconcile pass. The
+   *  provider maps these through `depIndex` to the hooks to notify, then
+   *  clears the set — before running any of them, so a dispatch triggered
+   *  from a notification starts with a clean slate. */
+  changedPaths: Set<PathKey>
+
+  /**
+   * Collect the path keys of every dependency read into `deps`, until called
+   * again with a different collector. Returns the previous collector so
+   * callers can restore it.
+   *
+   * Every kind of dependency a selector can take — primitive leaf, terminal
+   * object, `@@keys`, array column, array structure — is established by
+   * `getOrCreate`, so this single capture point sees them all, and captures
+   * exactly the path keys the signal graph itself would key on.
+   * @param deps - Set to collect into, or `null` to stop collecting
+   * @returns The collector that was previously installed
+   */
+  captureDeps(deps: Set<PathKey> | null): Set<PathKey> | null
 
   /** Holder for the leaf tracker of the evaluation currently running.
    *  Proxies read this at trap time instead of closing over a tracker,
@@ -181,7 +205,13 @@ export function createPathSignalRegistry(
   // Reuses proxies for unchanged Immer subtrees across state snapshots.
   const proxyWeakMap: ProxyCache = new WeakMap()
   // Coarse top-level segment index (see coarseSegments.ts).
-  const segmentIndex = new SegmentIndex<CoarseSub>()
+  const segmentIndex = new SegmentIndex()
+  // Fine per-path subscriber index (see pathDeps.ts).
+  const depIndex = new DepIndex()
+  // Dependency collector for the evaluation currently running, if any.
+  let activeDeps: Set<PathKey> | null = null
+  // Paths whose signal fired since the provider last drained this set.
+  const changedPaths = new Set<PathKey>()
   // Per-array metadata for identity-based tracking.
   // Maps array path → ArrayMeta (keyField + entityMap).
   const arrayMetas = new Map<string, ArrayMeta>()
@@ -210,6 +240,9 @@ export function createPathSignalRegistry(
 
   const registry: PathSignalRegistry = {
     getOrCreate(pathKey: PathKey, currentValue: unknown): ReactiveSignal<unknown> {
+      // The one place every dependency read passes through — see captureDeps.
+      if (activeDeps !== null) activeDeps.add(pathKey)
+
       let sig = signals.get(pathKey)
       if (!sig) {
         const initialValue = isObjectOrArray(currentValue) ? 0 : currentValue
@@ -244,6 +277,7 @@ export function createPathSignalRegistry(
       } else {
         sig.set(newValue)
       }
+      changedPaths.add(pathKey)
     },
 
     prune(pathKey: PathKey): void {
@@ -275,6 +309,10 @@ export function createPathSignalRegistry(
           // dependents never read the value itself, they re-run the
           // selector against real state.
           sig.set(PRUNED)
+          // Every descendant counts as changed, not just the pruned root: a
+          // hook can depend on a leaf deep inside the removed subtree and
+          // nothing else would tell the fine index about it.
+          changedPaths.add(key)
           signals.delete(key)
           decrementPrefixes(prefixCounts, key)
         } else if (prefixOnlyPaths.has(key)) {
@@ -325,6 +363,16 @@ export function createPathSignalRegistry(
 
     segmentIndex,
 
+    depIndex,
+
+    changedPaths,
+
+    captureDeps(deps: Set<PathKey> | null): Set<PathKey> | null {
+      const previous = activeDeps
+      activeDeps = deps
+      return previous
+    },
+
     leafTrackerHolder: { current: undefined },
 
     getArrayMeta(arrayPath: string): ArrayMeta | undefined {
@@ -353,10 +401,12 @@ export function createPathSignalRegistry(
     },
 
     bumpColumn(arrayPath: string, prop: string): void {
-      const sig = signals.get(buildColumnPath(arrayPath, prop))
+      const pathKey = buildColumnPath(arrayPath, prop)
+      const sig = signals.get(pathKey)
       if (!sig) return
       const current = sig.get()
       sig.set(typeof current === 'number' ? current + 1 : 0)
+      changedPaths.add(pathKey)
     },
 
     trackStructure(
@@ -377,10 +427,12 @@ export function createPathSignalRegistry(
     },
 
     bumpStructure(arrayPath: string, kind: StructureKind): void {
-      const sig = signals.get(buildStructurePath(arrayPath, kind))
+      const pathKey = buildStructurePath(arrayPath, kind)
+      const sig = signals.get(pathKey)
       if (!sig) return
       const current = sig.get()
       sig.set(typeof current === 'number' ? current + 1 : 0)
+      changedPaths.add(pathKey)
     },
   }
 

@@ -3,8 +3,8 @@ import {
   changedSegments,
   recordSegments,
   SegmentIndex,
-  type CoarseSub,
 } from '../../src/signals/coarseSegments'
+import type { HookSub } from '../../src/signals/types'
 
 describe('recordSegments', () => {
   const state = {
@@ -41,13 +41,14 @@ describe('recordSegments', () => {
 })
 
 describe('SegmentIndex', () => {
-  const sub = (...segments: string[]): CoarseSub => ({
+  const sub = (...segments: string[]): HookSub => ({
     segments: new Set(segments),
-    onCoarseHit() {},
+    deps: new Set(),
+    notify() {},
   })
 
   it('collects subscribers of changed segments (union, deduped)', () => {
-    const index = new SegmentIndex<CoarseSub>()
+    const index = new SegmentIndex()
     const s1 = sub('a', 'b')
     const s2 = sub('b')
     const s3 = sub('c')
@@ -55,7 +56,7 @@ describe('SegmentIndex', () => {
     index.register(s2)
     index.register(s3)
 
-    const out = new Set<CoarseSub>()
+    const out = new Set<HookSub>()
     index.collect(['b'], out)
     expect(out).toEqual(new Set([s1, s2]))
 
@@ -65,21 +66,21 @@ describe('SegmentIndex', () => {
   })
 
   it('ignores changed segments with no subscribers', () => {
-    const index = new SegmentIndex<CoarseSub>()
+    const index = new SegmentIndex()
     index.register(sub('a'))
-    const out = new Set<CoarseSub>()
+    const out = new Set<HookSub>()
     index.collect(['zzz'], out)
     expect(out.size).toBe(0)
   })
 
   it('unregister removes a subscriber and prunes empty segments', () => {
-    const index = new SegmentIndex<CoarseSub>()
+    const index = new SegmentIndex()
     const s1 = sub('a')
     index.register(s1)
     expect(index.segmentCount()).toBe(1)
     index.unregister(s1)
     expect(index.segmentCount()).toBe(0)
-    const out = new Set<CoarseSub>()
+    const out = new Set<HookSub>()
     index.collect(['a'], out)
     expect(out.size).toBe(0)
   })

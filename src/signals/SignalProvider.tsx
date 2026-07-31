@@ -10,16 +10,15 @@ import type { SignalContextValue } from './context'
 import { createPathSignalRegistry } from './pathSignalRegistry'
 import { reconcileState } from './diff'
 import { changedSegments } from './coarseSegments'
-import type { CoarseSub } from './coarseSegments'
 import { scheduleCallback, shouldYield } from './scheduler'
 
 import { alienEngine } from './engine'
-import type { SignalEngine } from './types'
+import type { HookSub, SignalEngine } from './types'
 
-// Default for SignalProvider's `sliceThreshold`: above this many candidates in
-// a single dispatch, the coarse first-touch pass is time-sliced (responsive,
-// but updates stagger); below it, it runs inline (atomic — all candidates in
-// one synchronous pass). Override via the prop.
+// Default for SignalProvider's `sliceThreshold`: above this many affected
+// hooks in a single dispatch, the notification pass is time-sliced
+// (responsive, but updates stagger); below it, it runs inline (atomic — every
+// hook in one synchronous pass). Override via the prop.
 const DEFAULT_SLICE_THRESHOLD = 64
 
 export interface SignalProviderProps<
@@ -28,13 +27,16 @@ export interface SignalProviderProps<
 > extends ProviderProps<A, S> {
   engine?: SignalEngine
   /**
-   * Candidate count above which the coarse first-touch build+notify burst is
+   * Number of hooks a single dispatch may notify before the pass is
    * time-sliced across macrotasks (keeps a huge burst from blocking a frame,
-   * at the cost of updates staggering during that burst). Below it the pass
-   * runs inline in one synchronous, atomic step. Default `64`. Set to
-   * `Infinity` to always run inline (atomic, may block on a large first
-   * touch); set to `0` to always slice. Only affects the first-touch burst —
-   * steady-state updates are always synchronous.
+   * at the cost of updates staggering during it). Below it the pass runs
+   * inline in one synchronous, atomic step. Default `64`. Set to `Infinity` to
+   * always run inline (atomic, may block on a large burst); set to `0` to
+   * always slice.
+   *
+   * Slicing never risks a stale render: a hook React renders reads the latest
+   * committed state through `getSnapshot` whether or not the drain has reached
+   * it yet. What it defers is only the re-render a changed value triggers.
    */
   sliceThreshold?: number
 }
@@ -91,13 +93,14 @@ export function SignalProvider<
   useIsomorphicLayoutEffect(() => {
     const { subscription } = contextValue
 
-    // Gated, time-sliced drain of coarse candidates. A large first-touch
-    // burst (e.g. every hook depends on the one slice that just changed) is
-    // chunked across macrotasks so it never blocks a frame; a small burst
-    // runs inline. Deferring a candidate only delays its re-render — the
-    // value is read fresh from committed state when it finally builds.
-    let pending: CoarseSub[] = []
-    const pendingSet = new Set<CoarseSub>()
+    // Gated, time-sliced drain of the hooks a dispatch affected. A large burst
+    // (every hook reading the one slice that just changed, a dense update
+    // across a big list) is chunked across macrotasks so it never blocks a
+    // frame; a small one runs inline. Deferring a hook only delays its
+    // re-render — the value is read fresh from committed state whenever it
+    // runs, and `getSnapshot` keeps a hook rendered before then consistent.
+    let pending: HookSub[] = []
+    const pendingSet = new Set<HookSub>()
     let draining = false
     let disposed = false
 
@@ -106,7 +109,7 @@ export function SignalProvider<
       let sub = pending.pop()
       while (sub !== undefined) {
         pendingSet.delete(sub)
-        sub.onCoarseHit()
+        sub.notify()
         if (pending.length > 0 && shouldYield()) break
         sub = pending.pop()
       }
@@ -117,21 +120,22 @@ export function SignalProvider<
       }
     }
 
-    const runCoarse = (candidates: Set<CoarseSub>): void => {
-      if (!draining && candidates.size < sliceThreshold) {
-        for (const sub of candidates) sub.onCoarseHit()
+    const notifyAffected = (affected: Set<HookSub>): void => {
+      if (!draining && affected.size < sliceThreshold) {
+        for (const sub of affected) sub.notify()
         return
       }
-      for (const sub of candidates) {
+      for (const sub of affected) {
         if (!pendingSet.has(sub)) {
           pendingSet.add(sub)
           pending.push(sub)
-          // Drop it from the segment index as soon as it's queued, so a
-          // dispatch arriving mid-drain doesn't re-collect the whole backlog
-          // of already-queued subs (O(unbuilt) per tick during a large
-          // first-touch drain). Safe: the queued build reads the latest
-          // committed state when it runs, so any further change to this
-          // sub's segment while it waits is still picked up.
+          // Drop an unbuilt sub from the segment index as soon as it's queued,
+          // so a dispatch arriving mid-drain doesn't re-collect the whole
+          // backlog of already-queued subs (O(unbuilt) per tick during a large
+          // first-touch drain). Safe: the queued notify reads the latest
+          // committed state when it runs, so any further change to this sub's
+          // segments while it waits is still picked up. A no-op for built subs
+          // — they left the coarse index on their first touch.
           registry.segmentIndex.unregister(sub)
         }
       }
@@ -147,21 +151,35 @@ export function SignalProvider<
       const prev = prevStateRef.current
       const next = store.getState()
       prevStateRef.current = next
+
+      // Pure change DETECTION: walks only the tracked parts of the tree,
+      // comparing references and recording which paths fired. It runs no
+      // selector — nothing subscribes to the path signals, so there is no
+      // propagation to flush.
       reconcileState(prev, next, registry, engine)
 
-      // Coarse tier: build + notify any deferred (not-yet-built) hooks whose
-      // top-level segment changed this dispatch. Built hooks are already
-      // handled by the deep reconcile above and drop out of the index, so
-      // this only ever touches the lazy ones.
+      const affected = new Set<HookSub>()
+
+      // Fine tier: the built hooks that read a path this dispatch changed.
+      // O(changed paths × subscribers per path), still no evaluation. Drain
+      // the recorded paths before running anything — a notification can
+      // dispatch, and that reconcile needs a clean set.
+      registry.depIndex.collect(registry.changedPaths, affected)
+      registry.changedPaths.clear()
+
+      // Coarse tier: hooks whose deep graph isn't built yet and whose
+      // top-level segment changed. Built hooks are covered by the fine index
+      // above and have dropped out of this one, so this only ever adds the
+      // lazy ones.
       const changed = changedSegments(
         prev as Record<string, unknown>,
         next as Record<string, unknown>,
       )
       if (changed.length > 0) {
-        const candidates = new Set<CoarseSub>()
-        registry.segmentIndex.collect(changed, candidates)
-        if (candidates.size > 0) runCoarse(candidates)
+        registry.segmentIndex.collect(changed, affected)
       }
+
+      if (affected.size > 0) notifyAffected(affected)
 
       subscription.notifyNestedSubs()
     }

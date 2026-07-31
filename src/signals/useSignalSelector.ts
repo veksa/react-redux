@@ -6,6 +6,7 @@ import type {
 } from '../hooks/useSelector'
 import type { ReactReduxContextValue } from '../components/Context'
 import type { EqualityFn } from '../types'
+import type { HookSub, PathKey } from './types'
 import type { SignalContextValue } from './context'
 import {
   createSignalContextHook,
@@ -19,17 +20,15 @@ import {
 } from './trackingProxy'
 import { untrackResult } from './untrack'
 import { recordSegments } from './coarseSegments'
-import type { CoarseSub } from './coarseSegments'
 
 const { useRef, useMemo, useEffect, useSyncExternalStore, useDebugValue } =
   React
 
 const refEquality: EqualityFn<any> = Object.is
 
-// Returned by the computed when the selector threw. A unique sentinel
-// (never a real result) so alien-signals sees the value as changed and
-// keeps propagating to the effect — returning the previous result would
-// cut off propagation and React would never be notified of the error.
+// Returned by an evaluation whose selector threw. A unique sentinel, never a
+// real result, so a caller that forgets to check `pendingError` fails loudly
+// instead of quietly adopting a plausible-looking value.
 const SELECTOR_THREW = Symbol('selector threw') as unknown
 
 
@@ -98,24 +97,22 @@ const useSignalSelectorImpl = <S, R>(
     let currentResult: R
     let version = 0
     let notifyReact: (() => void) | null = null
-    let suppressNotify = false
-    // Coarse-tier registration for this hook (top-level segments it reads),
-    // kept so subscribe/cleanup can (un)register it in the segment index.
-    let coarseSub: CoarseSub | null = null
-    // Lazy deep-graph state: the alien effect that establishes path signals
-    // and drives React notifications is built on the first coarse hit (a
-    // dispatch that changed one of this hook's segments), not at mount — so
-    // mounting N hooks doesn't build N deep graphs up front.
+    // Lazy deep-graph state: the tracked evaluation that establishes path
+    // signals and registers this hook in the fine index runs on the first
+    // coarse hit (a dispatch that changed one of the hook's segments), not at
+    // mount — so mounting N hooks doesn't build N deep graphs up front.
     let built = false
-    let disposeEffect: (() => void) | null = null
-    // The store state `currentResult` was last computed from, while unbuilt.
-    // Lets getSnapshot recompute from the latest state (only when the state
-    // ref changed, so the snapshot stays referentially stable) — see
-    // getSnapshot for why this prevents tearing during the deferred window.
+    // Set while unsubscribed so the next evaluation reads no path signal —
+    // see detach().
+    let detached = false
+    // The store state `currentResult` was last computed from. Lets getSnapshot
+    // recompute from the latest state (only when the state ref changed, so the
+    // snapshot stays referentially stable) — see getSnapshot for why this is
+    // what keeps a deferred re-evaluation tear-free.
     let lastSnapshotState: unknown = null
-    // Set when the selector threw during an effect re-evaluation (classic
-    // zombie child: an entity was removed while a component selecting it
-    // is still mounted). getSnapshot retries and rethrows if it persists.
+    // Set when the selector threw during a re-evaluation (classic zombie
+    // child: an entity was removed while a component selecting it is still
+    // mounted). getSnapshot retries and rethrows if it persists.
     let pendingError: unknown = null
 
     // Create a computed that runs the selector through a tracking proxy.
@@ -143,22 +140,113 @@ const useSignalSelectorImpl = <S, R>(
     // closure's result until an unrelated store change fired a signal.
     const selectorVersionSignal = engine.signal(0)
 
-    // Force a fresh evaluation of the computed WITHOUT notifying React.
-    // Bumping the version signal dirties the computed; a plain .get()
-    // alone would return the cached value. On a selector error the
-    // computed records pendingError and yields the SELECTOR_THREW
-    // sentinel, which must never replace the last good result.
-    const recomputeInPlace = (): void => {
-      suppressNotify = true
+    // One subscriber object per hook, indexed by the coarse tier while the
+    // deep graph is unbuilt and by the fine tier once built. `notify` is the
+    // provider drain's single entry point for both.
+    const sub: HookSub = {
+      segments: new Set<string>(),
+      deps: new Set<PathKey>(),
+      notify(): void {
+        if (notifyReact === null) {
+          // Unsubscribed while queued in a deferred drain — don't build a
+          // graph for, or notify, a dead hook.
+          return
+        }
+
+        if (!built) {
+          // First touch: upgrade to the fine tier. The tracked evaluation
+          // below registers path signals and this hook's dep edges, and
+          // comparing its result against the value we were carrying surfaces
+          // this dispatch's change — so no separate non-notifying first pass
+          // is needed. Now driven by the fine index; drop the coarse
+          // registration so it isn't hit again.
+          built = true
+          registry.segmentIndex.unregister(sub)
+        }
+
+        const newValue = recomputeTracked()
+
+        if (pendingError !== null) {
+          // The evaluation threw (newValue is the SELECTOR_THREW sentinel —
+          // never adopt it). Notify React so getSnapshot can retry and
+          // surface or dissolve the error.
+          notifyReact()
+          return
+        }
+
+        // Apply user's equality function.
+        if (!equalityFnRef.current(currentResult, newValue)) {
+          currentResult = newValue
+          version++
+          notifyReact()
+        }
+      },
+    }
+
+    // Re-run the selector through the tracking proxy against the latest
+    // committed state, re-capturing the exact path keys it reads into the fine
+    // index. Bumping the version signal is what forces the re-evaluation:
+    // nothing subscribes to the computed, so a plain `.get()` could hand back
+    // a cached value. On a selector error the computed records pendingError
+    // and yields the SELECTOR_THREW sentinel, which must never replace the
+    // last good result.
+    const recomputeTracked = (): R => {
+      const nextDeps = new Set<PathKey>()
+      const previousDeps = registry.captureDeps(nextDeps)
       try {
         selectorVersionSignal.set(selectorVersionSignal.get() + 1)
         const value = selectorComputed.get()
         if (pendingError === null) {
-          currentResult = value
+          // This run used the latest committed state, so getSnapshot's raw
+          // recompute for the same state would be redundant.
+          lastSnapshotState = store.getState()
         }
+        return value
       } finally {
-        suppressNotify = false
+        registry.captureDeps(previousDeps)
+        registry.depIndex.replace(sub, nextDeps)
       }
+    }
+
+    // Run the selector against raw state — no tracking proxy, no path signals,
+    // no dependency edges. What a hook uses wherever it only needs the value:
+    // the mount seed, and getSnapshot's latest-state recompute. Yields the
+    // same result as the tracked run (`untrackResult` is a no-op on already-raw
+    // state) at a fraction of the cost.
+    const recomputeRaw = (): R => {
+      pendingError = null
+      try {
+        const state = store.getState()
+        const value = untrackResult(selectorRef.current(state as S))
+        lastSnapshotState = state
+        return value
+      } catch (e) {
+        pendingError = e
+        return SELECTOR_THREW as R
+      }
+    }
+
+    // Re-evaluate and adopt the result WITHOUT notifying React — for callers
+    // already inside a render that will read getSnapshot in the same pass. A
+    // built hook re-runs tracked (its dep edges must stay current); an unbuilt
+    // one has no edges to maintain, so the raw run is both cheaper and what
+    // its getSnapshot would do anyway.
+    const recomputeInPlace = (): void => {
+      const value = built ? recomputeTracked() : recomputeRaw()
+      if (pendingError === null) {
+        currentResult = value
+      }
+    }
+
+    // Break the computed's links to the registry's path signals. Nothing
+    // subscribes to the computed any more, so the signal library has no moment
+    // of its own to unlink it — and a live path signal holding a link back to
+    // an unmounted hook's computed would keep that hook's whole closure
+    // reachable. One evaluation that reads nothing purges the dep list.
+    const detach = (): void => {
+      detached = true
+      selectorVersionSignal.set(selectorVersionSignal.get() + 1)
+      selectorComputed.get()
     }
 
     const setSelector = (nextSelector: (state: S) => R): void => {
@@ -240,6 +328,11 @@ const useSignalSelectorImpl = <S, R>(
 
     const selectorComputed = engine.computed(() => {
       selectorVersionSignal.get()
+      if (detached) {
+        // Unsubscribed: read no path signal, so the signal library drops every
+        // link from this computed (see detach). The value is never used.
+        return currentResult
+      }
       // pendingError reflects the LAST evaluation: a successful re-run
       // clears an earlier error.
       pendingError = null
@@ -291,14 +384,14 @@ const useSignalSelectorImpl = <S, R>(
       } catch (e) {
         // The selector threw — typically a zombie child whose entity was
         // removed in the same dispatch that will unmount it. The error
-        // CANNOT propagate from here: alien-signals evaluates dirty
-        // computeds during its flush (checkDirty), so an uncaught throw
-        // escapes store.dispatch and skips every remaining component's
-        // effect. Record it and yield the sentinel; the effect notifies
-        // React and getSnapshot re-evaluates — if a parent unmounts this
-        // component first the error dissolves, otherwise it rethrows
-        // into the render where an error boundary owns it (matching
-        // stock useSelector under React's useSyncExternalStore).
+        // CANNOT propagate from here: this evaluation runs inside the
+        // provider's notification drain, so an uncaught throw would escape
+        // `dispatch` (or the drain's macrotask) and abandon every hook still
+        // queued behind this one. Record it and yield the sentinel; notify()
+        // tells React and getSnapshot re-evaluates — if a parent unmounts this
+        // component first the error dissolves, otherwise it rethrows into the
+        // render where an error boundary owns it (matching stock useSelector
+        // under React's useSyncExternalStore).
         pendingError = e
         return SELECTOR_THREW as R
       }
@@ -307,19 +400,13 @@ const useSignalSelectorImpl = <S, R>(
     // MOUNT OPT: seed the first-render value with a cheap UNTRACKED run of
     // the selector against raw state, instead of the eager tracked
     // `selectorComputed.get()`. Building the tracking proxy + registering
-    // path signals (the expensive part) is deferred to the first
-    // `engine.effect` run inside subscribe(), which React invokes in the
-    // commit phase — off the render-blocking path. The raw run yields the
-    // same value (`untrackResult` is a no-op on already-raw state), so the
-    // first-render snapshot is unchanged; the dependency graph is
-    // established lazily on subscribe. A selector that throws
-    // deterministically still throws here, during render (stock parity).
-    try {
-      const state = store.getState()
-      lastSnapshotState = state
-      currentResult = untrackResult(selectorRef.current(state as S))
-    } catch (e) {
-      pendingError = e
+    // path signals (the expensive part) is deferred to this hook's first
+    // notify(), which the provider invokes off the render-blocking path. The
+    // raw run yields the same value, so the first-render snapshot is
+    // unchanged; the dependency graph is established lazily. A selector that
+    // throws deterministically still throws here, during render (stock parity).
+    currentResult = recomputeRaw()
+    if (pendingError !== null) {
       throw pendingError
     }
 
@@ -333,113 +420,39 @@ const useSignalSelectorImpl = <S, R>(
       runDevModeChecks(currentResult, store.getState() as S)
     }
 
-    // Build the alien effect that drives React notifications from the deep
-    // signal graph. Its first run evaluates the computed once — establishing
-    // path-signal dependencies via the tracking proxy — without notifying;
-    // afterwards alien re-runs it whenever a tracked path changes. Deferred
-    // until the first coarse hit, so mount doesn't build N deep graphs.
-    const buildEffect = (): void => {
-      built = true
-      let isFirst = true
-      disposeEffect = engine.effect(() => {
-        const newValue = selectorComputed.get()
-
-        if (pendingError !== null) {
-          // The evaluation threw (newValue is the SELECTOR_THREW sentinel —
-          // never adopt it). Notify React so getSnapshot can retry and
-          // surface or dissolve the error.
-          isFirst = false
-          if (!suppressNotify) {
-            notifyReact?.()
-          }
-          return
-        }
-
-        if (isFirst) {
-          // First effect run — just establish tracking, don't notify.
-          isFirst = false
-          return
-        }
-
-        if (suppressNotify) {
-          // Render-phase selector swap (setSelector): adopt the value so the
-          // equality baseline is current, but let the ongoing render pick it
-          // up via getSnapshot instead of scheduling another render.
-          currentResult = newValue
-          return
-        }
-
-        // Apply user's equality function.
-        if (!equalityFnRef.current(currentResult, newValue)) {
-          currentResult = newValue
-          version++
-          notifyReact?.()
-        }
-      })
-    }
-
     return {
       subscribe(onStoreChange: () => void): () => void {
         notifyReact = onStoreChange
+        detached = false
 
         // Record the coarse top-level segments this selector reads. Sound for
         // immutable state: if none of them changed by reference, the selector
         // result cannot have changed, so the hook needs no update.
-        const segments = recordSegments(
+        sub.segments = recordSegments(
           store.getState() as object,
           selectorRef.current as (s: object) => unknown,
         )
 
-        if (segments.size === 0) {
+        if (sub.segments.size === 0) {
           // No discrete top-level segment (identity selector, key
-          // enumeration, …): the coarse tier can't gate it — build the deep
-          // graph eagerly so it's driven normally and never misses an update.
-          buildEffect()
+          // enumeration, …): the coarse tier can't gate it, so nothing would
+          // ever trigger the first touch. Build the deep graph eagerly
+          // instead, which registers whatever fine-tier dependencies the
+          // selector does have. No notify — the value we just seeded is
+          // already current.
+          built = true
+          recomputeTracked()
         } else {
           // Defer the deep graph: register in the segment index and build on
           // the first dispatch that changes one of these segments.
-          coarseSub = {
-            segments,
-            onCoarseHit: () => {
-              // Skip if already built, or if the hook unsubscribed while this
-              // candidate was waiting in a sliced drain (cleanup nulls
-              // notifyReact) — don't build a graph for a dead hook.
-              if (built || notifyReact === null) return
-              buildEffect()
-              // buildEffect's first run evaluated the computed against the
-              // just-committed state without notifying. Surface this
-              // dispatch's change now by comparing to the seeded value.
-              if (pendingError !== null) {
-                notifyReact?.()
-              } else {
-                const newValue = selectorComputed.get()
-                if (!equalityFnRef.current(currentResult, newValue)) {
-                  currentResult = newValue
-                  version++
-                  notifyReact?.()
-                }
-              }
-              // Now driven by the deep graph via reconcile — drop the coarse
-              // registration so it isn't hit again.
-              if (coarseSub !== null) {
-                registry.segmentIndex.unregister(coarseSub)
-                coarseSub = null
-              }
-            },
-          }
-          registry.segmentIndex.register(coarseSub)
+          registry.segmentIndex.register(sub)
         }
 
         return () => {
           notifyReact = null
-          if (coarseSub !== null) {
-            registry.segmentIndex.unregister(coarseSub)
-            coarseSub = null
-          }
-          if (disposeEffect !== null) {
-            disposeEffect()
-            disposeEffect = null
-          }
+          registry.segmentIndex.unregister(sub)
+          registry.depIndex.remove(sub)
+          detach()
           built = false
         }
       },
@@ -449,7 +462,7 @@ const useSignalSelectorImpl = <S, R>(
           // A previous evaluation threw. Retry against current state:
           // the situation may have resolved (entity restored, or this is
           // a fresh render pass after the parent re-rendered). Clear
-          // first — the effect's catch re-sets it if the selector still
+          // first — the retry re-sets it if the selector still
           // throws. On rethrow, LEAVE pendingError set so the next
           // getSnapshot (React retries during render after a
           // subscription-phase throw) re-evaluates instead of returning
@@ -461,27 +474,27 @@ const useSignalSelectorImpl = <S, R>(
           }
         }
 
-        if (!built) {
-          // Not yet upgraded to the deep signal graph. Behave like stock
-          // useSelector: recompute from the LATEST committed state whenever
-          // it changed (skip when the state ref is unchanged so the snapshot
-          // stays referentially stable for useSyncExternalStore). This closes
-          // the tearing window from the coarse tier's deferred notification —
-          // if an ancestor force-renders this hook before its deferred build
-          // runs, it still reflects the latest state, consistent with built
-          // siblings that update synchronously via reconcile.
-          const state = store.getState()
-          if (state !== lastSnapshotState) {
-            lastSnapshotState = state
-            try {
-              const fresh = untrackResult(selectorRef.current(state as S))
-              if (!equalityFnRef.current(currentResult, fresh)) {
-                currentResult = fresh
-              }
-            } catch (e) {
-              pendingError = e
-              throw pendingError
-            }
+        // Recompute from the LATEST committed state whenever it changed (skip
+        // when the state ref is unchanged, so the snapshot stays referentially
+        // stable for useSyncExternalStore). Behaves exactly like stock
+        // useSelector, and it is what makes deferring re-evaluation safe:
+        // whatever React renders reflects the state committed NOW, whether or
+        // not the drain has reached this hook yet. Without it a hook an
+        // ancestor force-renders mid-drain would paint a stale value next to
+        // siblings the drain already reached — the same store, two values.
+        //
+        // Unconditional, not just while unbuilt: once notification is
+        // deferred, `currentResult` isn't guaranteed fresh for built hooks
+        // either. The cost is one untracked selector run per state change per
+        // hook React actually renders — hooks nobody renders pay nothing.
+        const state = store.getState()
+        if (state !== lastSnapshotState) {
+          const fresh = recomputeRaw()
+          if (pendingError !== null) {
+            throw pendingError
+          }
+          if (!equalityFnRef.current(currentResult, fresh)) {
+            currentResult = fresh
           }
         }
 
@@ -503,11 +516,11 @@ const useSignalSelectorImpl = <S, R>(
   // Cleanup scope on unmount
   useEffect(() => {
     return () => {
-      // bridge.subscribe's cleanup handles effect disposal
+      // bridge.subscribe's cleanup deregisters and detaches the hook
     }
   }, [bridge])
 
-  // getSnapshot doubles as getServerSnapshot: the computed already ran
+  // getSnapshot doubles as getServerSnapshot: the mount seed already ran
   // during useMemo, so SSR renders the current selected value.
   const selectedState = useSyncExternalStore(
     bridge.subscribe,

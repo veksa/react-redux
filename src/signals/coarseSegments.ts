@@ -13,20 +13,7 @@
 //   - `SegmentIndex` — an inverted index `segment -> Set<subscriber>` used to
 //     collect the subscribers a given dispatch could affect.
 
-/**
- * A subscriber the coarse tier can index by segment. Kept intentionally
- * minimal — the index only needs identity and the current segment set.
- */
-export interface CoarseSub {
-  /** Top-level state segments this subscriber currently depends on. */
-  segments: Set<string>
-  /**
-   * Invoked by the provider when a dispatch changed one of this subscriber's
-   * segments — i.e. the selector could now produce a different value. The
-   * subscriber decides what to do (build its deep graph, re-run, notify).
-   */
-  onCoarseHit(): void
-}
+import type { HookSub } from './types'
 
 /**
  * Run `selector` against a shallow proxy of `state` and return the set of
@@ -67,11 +54,15 @@ export function recordSegments<S extends object>(
  * whether it truly needs to update — so we never miss an update, we only ever
  * consider a few extra.
  */
-export class SegmentIndex<Sub extends CoarseSub> {
-  private readonly bySegment = new Map<string, Set<Sub>>()
+export class SegmentIndex {
+  private readonly bySegment = new Map<string, Set<HookSub>>()
 
-  /** Add `sub` under each of its current segments. */
-  register(sub: Sub): void {
+  /**
+   * Add `sub` under each of its current segments.
+   * @param sub - The subscriber to index
+   * @returns void
+   */
+  register(sub: HookSub): void {
     for (const segment of sub.segments) {
       let set = this.bySegment.get(segment)
       if (set === undefined) {
@@ -82,8 +73,13 @@ export class SegmentIndex<Sub extends CoarseSub> {
     }
   }
 
-  /** Remove `sub` from each of the given segments (its current set by default). */
-  unregister(sub: Sub, segments: Iterable<string> = sub.segments): void {
+  /**
+   * Remove `sub` from each of the given segments.
+   * @param sub - The subscriber to drop
+   * @param segments - Segments to drop it from; its current set by default
+   * @returns void
+   */
+  unregister(sub: HookSub, segments: Iterable<string> = sub.segments): void {
     for (const segment of segments) {
       const set = this.bySegment.get(segment)
       if (set !== undefined) {
@@ -95,8 +91,13 @@ export class SegmentIndex<Sub extends CoarseSub> {
     }
   }
 
-  /** Add every subscriber of any changed segment into `out`. */
-  collect(changedSegments: Iterable<string>, out: Set<Sub>): void {
+  /**
+   * Add every subscriber of any changed segment into `out`.
+   * @param changedSegments - Top-level segments that changed this dispatch
+   * @param out - Set to accumulate affected subscribers into
+   * @returns void
+   */
+  collect(changedSegments: Iterable<string>, out: Set<HookSub>): void {
     for (const segment of changedSegments) {
       const set = this.bySegment.get(segment)
       if (set !== undefined) {
@@ -105,7 +106,10 @@ export class SegmentIndex<Sub extends CoarseSub> {
     }
   }
 
-  /** Number of indexed segments (for tests/diagnostics). */
+  /**
+   * Number of indexed segments (for tests/diagnostics).
+   * @returns How many distinct segments currently have subscribers
+   */
   segmentCount(): number {
     return this.bySegment.size
   }

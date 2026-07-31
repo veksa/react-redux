@@ -7,7 +7,8 @@ import {
   createSlice,
   type PayloadAction,
 } from '@reduxjs/toolkit'
-import { SignalProvider, useSignalSelector, shallowEqual } from '../../src/signals'
+import { shallowEqual } from 'react-redux'
+import { SignalProvider, useSignalSelector } from '../../src/signals'
 
 // Mirrors the multi-selector-component benchmark: 4 selectors per card, over
 // slices where several actions change a segment WITHOUT changing the field the
