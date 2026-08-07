@@ -1,4 +1,4 @@
-import { runSyncSlice, scheduleCallback, shouldYield } from './scheduler'
+import { scheduleCallback, shouldYield } from './scheduler'
 
 export type VoidFunc = () => void
 
@@ -80,12 +80,11 @@ export function createListenerCollection(): ListenerCollection {
 
       isDraining = true
       current = first
-      // Drain the first chunk in this task rather than scheduling it.
-      // `dispatch()` has always re-rendered synchronously, and deferring the
-      // pass breaks that: anything reading the DOM right after a dispatch sees
-      // the previous value. The chunk still yields at the deadline, so a long
-      // pass stays time-sliced — only its first slice moves into this task.
-      runSyncSlice(drainChunk)
+      // Scheduled, not run inline: keeping the whole pass off the dispatch task
+      // is what stops a large subscriber set from turning one write into a long
+      // task. A caller that must observe the result synchronously has to flush
+      // — see the note on `notify` in the type above.
+      scheduleCallback(drainChunk)
     },
 
     get() {

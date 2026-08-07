@@ -106,19 +106,6 @@ function flush() {
   }
 }
 
-/**
- * Runs the first chunk of a pass in the *current* task instead of a scheduled
- * one, with the same bookkeeping {@linkcode flush} does per callback. Without
- * resetting `startTime` here, `shouldYield()` would compare against whenever
- * the last scheduled chunk ran — usually long ago — and report "yield" after a
- * single iteration, deferring nearly the whole pass.
- */
-export function runSyncSlice(callback: () => void): void {
-  needsPaint = false
-  startTime = getCurrentTime()
-  callback()
-}
-
 export function scheduleCallback(callback: () => void): void {
   queue.push(callback)
   if (queue.length > 1) return
