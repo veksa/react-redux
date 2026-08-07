@@ -56,10 +56,6 @@
       "optional": true
     }
   },
-  "dependencies": {
-    "@types/use-sync-external-store": "^0.0.6",
-    "use-sync-external-store": "^1.4.0"
-  },
   "devDependencies": {
     "@arethetypeswrong/cli": "^0.18.5",
     "@reduxjs/toolkit": "^2.12.0",

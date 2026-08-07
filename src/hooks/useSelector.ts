@@ -1,14 +1,12 @@
-//import * as React from 'react'
-import { useSyncExternalStoreWithSelector } from 'use-sync-external-store/with-selector.js'
 import type { ReactReduxContextValue } from '../components/Context'
 import { ReactReduxContext } from '../components/Context'
 import type { EqualityFn } from '../types'
 import { React } from '../utils/react'
+import { useSyncExternalStoreWithSelector } from '../utils/useSyncExternalStoreWithSelector'
 import {
   createReduxContextHook,
   useReduxContext as useDefaultReduxContext,
 } from './useReduxContext'
-import { useSyncExternalStoreWithSelector } from '../utils/useSyncExternalStoreWithSelector'
 
 /**
  * The frequency of development mode checks.

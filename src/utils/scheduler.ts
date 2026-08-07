@@ -98,9 +98,11 @@ function flush() {
   const pending = queue
   queue = []
   for (let i = 0; i < pending.length; i++) {
+    // Non-null: `pending` is a dense array we own, only ever grown by `push`.
+    const callback = pending[i]!
     needsPaint = false
     startTime = getCurrentTime()
-    pending[i]()
+    callback()
   }
 }
 
