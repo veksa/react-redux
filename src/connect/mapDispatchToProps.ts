@@ -1,14 +1,18 @@
 import type { Action, Dispatch } from 'redux'
-import bindActionCreators from '../utils/bindActionCreators'
-import { wrapMapToPropsConstant, wrapMapToPropsFunc } from './wrapMapToProps'
+import { bindActionCreators } from '../utils/bindActionCreators'
 import { createInvalidArgFactory } from './invalidArgFactory'
 import type { MapDispatchToPropsParam } from './selectorFactory'
+import type { InitProxyOptions, WrappedMapToProps } from './wrapMapToProps'
+import { wrapMapToPropsConstant, wrapMapToPropsFunc } from './wrapMapToProps'
 
 export function mapDispatchToPropsFactory<TDispatchProps, TOwnProps>(
   mapDispatchToProps:
     | MapDispatchToPropsParam<TDispatchProps, TOwnProps>
     | undefined,
-) {
+): (
+  dispatch: Dispatch<Action<string>>,
+  options: InitProxyOptions,
+) => WrappedMapToProps {
   return mapDispatchToProps && typeof mapDispatchToProps === 'object'
     ? wrapMapToPropsConstant((dispatch: Dispatch<Action<string>>) =>
         // @ts-ignore

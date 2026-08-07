@@ -19,7 +19,10 @@ const nullListeners = {
   get: () => [],
 } as unknown as ListenerCollection
 
-export function createSubscription(store: any, parentSub?: Subscription) {
+export function createSubscription(
+  store: any,
+  parentSub?: Subscription,
+): Subscription {
   let unsubscribe: VoidFunc | undefined
   let listeners: ListenerCollection = nullListeners
 

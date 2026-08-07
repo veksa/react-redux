@@ -1,6 +1,7 @@
-import { React } from '../utils/react'
-import { ReactReduxContext } from '../components/Context'
+import type { Context } from 'react'
 import type { ReactReduxContextValue } from '../components/Context'
+import { ReactReduxContext } from '../components/Context'
+import { React } from '../utils/react'
 
 /**
  * Hook factory, which creates a `useReduxContext` hook bound to a given context. This is a low-level
@@ -9,7 +10,9 @@ import type { ReactReduxContextValue } from '../components/Context'
  * @param {React.Context} [context=ReactReduxContext] Context passed to your `<Provider>`.
  * @returns {Function} A `useReduxContext` hook bound to the specified context.
  */
-export function createReduxContextHook(context = ReactReduxContext) {
+export function createReduxContextHook(
+  context: Context<ReactReduxContextValue<any, any> | null> = ReactReduxContext,
+): () => ReactReduxContextValue {
   return function useReduxContext(): ReactReduxContextValue {
     const contextValue = React.useContext(context)
 
@@ -39,4 +42,5 @@ export function createReduxContextHook(context = ReactReduxContext) {
  *   return <div>{store.getState()}</div>
  * }
  */
-export const useReduxContext = /*#__PURE__*/ createReduxContextHook()
+export const useReduxContext: () => ReactReduxContextValue =
+  /*#__PURE__*/ createReduxContextHook()

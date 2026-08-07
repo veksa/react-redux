@@ -36,5 +36,5 @@ const isReactNative = /* @__PURE__ */ isRunningInReactNative()
 const getUseIsomorphicLayoutEffect = () =>
   isDOM || isReactNative ? React.useLayoutEffect : React.useEffect
 
-export const useIsomorphicLayoutEffect =
+export const useIsomorphicLayoutEffect: typeof React.useEffect =
   /* @__PURE__ */ getUseIsomorphicLayoutEffect()

@@ -6,7 +6,8 @@ import { React } from './react'
 // It's very possible this could change in the future, but given that
 // we only use these in `connect`, this is a low priority.
 
-export const IS_REACT_19 = /* @__PURE__ */ React.version.startsWith('19')
+export const IS_REACT_19: boolean =
+  /* @__PURE__ */ React.version.startsWith('19')
 
 const REACT_ELEMENT_TYPE = /* @__PURE__ */ Symbol.for(
   IS_REACT_19 ? 'react.transitional.element' : 'react.element',
@@ -29,8 +30,8 @@ const REACT_CLIENT_REFERENCE = /* @__PURE__ */ Symbol.for(
   'react.client.reference',
 )
 
-export const ForwardRef = REACT_FORWARD_REF_TYPE
-export const Memo = REACT_MEMO_TYPE
+export const ForwardRef: symbol = REACT_FORWARD_REF_TYPE
+export const Memo: symbol = REACT_MEMO_TYPE
 
 export function isValidElementType(type: any): type is ElementType {
   return typeof type === 'string' ||

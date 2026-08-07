@@ -45,6 +45,9 @@ function getContext(): Context<ReactReduxContextValue | null> {
   return realContext
 }
 
-export const ReactReduxContext = /*#__PURE__*/ getContext()
+export const ReactReduxContext: Context<ReactReduxContextValue<
+  any,
+  UnknownAction
+> | null> = /*#__PURE__*/ getContext()
 
 export type ReactReduxContextInstance = typeof ReactReduxContext

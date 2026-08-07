@@ -1,7 +1,7 @@
 import type { ActionCreatorsMapObject, Dispatch, ActionCreator } from 'redux'
 
 import type { FixTypeLater } from '../types'
-import verifyPlainObject from '../utils/verifyPlainObject'
+import { verifyPlainObject } from '../utils/verifyPlainObject'
 
 type AnyState = { [key: string]: any }
 type StateOrDispatch<S extends AnyState = AnyState> = S | Dispatch
@@ -12,6 +12,26 @@ export type MapToProps<P extends AnyProps = AnyProps> = {
   // eslint-disable-next-line no-unused-vars
   (stateOrDispatch: StateOrDispatch, ownProps?: P): FixTypeLater
   dependsOnOwnProps?: boolean
+}
+
+/**
+ * What the `init*` factories below hand back to `selectorFactory`: the same
+ * call signature as {@linkcode MapToProps}, but with `dependsOnOwnProps`
+ * always present — `selectorFactory` reads it unconditionally.
+ */
+export type WrappedMapToProps<P extends AnyProps = AnyProps> = {
+  (stateOrDispatch: StateOrDispatch, ownProps?: P): FixTypeLater
+  dependsOnOwnProps: boolean
+}
+
+/**
+ * The fields of `selectorFactory`'s `InitOptions` that the `init*` factories
+ * actually read. Kept structural (rather than importing `InitOptions`) so the
+ * two modules don't have to agree on its type parameters.
+ */
+export type InitProxyOptions = {
+  readonly displayName: string
+  readonly wrappedComponentName: string
 }
 
 export function wrapMapToPropsConstant(
@@ -27,7 +47,7 @@ export function wrapMapToPropsConstant(
       }
     | ActionCreatorsMapObject
     | ActionCreator<any>,
-) {
+): (dispatch: Dispatch) => WrappedMapToProps {
   return function initConstantSelector(dispatch: Dispatch) {
     const constant = getConstant(dispatch)
 
@@ -68,7 +88,10 @@ function getDependsOnOwnProps(mapToProps: MapToProps) {
 export function wrapMapToPropsFunc<P extends AnyProps = AnyProps>(
   mapToProps: MapToProps,
   methodName: string,
-) {
+): (
+  dispatch: Dispatch,
+  factoryOptions: { displayName: string },
+) => WrappedMapToProps<P> {
   return function initProxySelector(
     dispatch: Dispatch,
     { displayName }: { displayName: string },

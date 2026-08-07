@@ -25,7 +25,7 @@ import type {
   MergeProps,
   SelectorFactoryOptions,
 } from '../connect/selectorFactory'
-import defaultSelectorFactory from '../connect/selectorFactory'
+import { finalPropsSelectorFactory as defaultSelectorFactory } from '../connect/selectorFactory'
 import { mapDispatchToPropsFactory } from '../connect/mapDispatchToProps'
 import { mapStateToPropsFactory } from '../connect/mapStateToProps'
 import { mergePropsFactory } from '../connect/mergeProps'
@@ -33,9 +33,9 @@ import { mergePropsFactory } from '../connect/mergeProps'
 import type { Subscription } from '../utils/Subscription'
 import { createSubscription } from '../utils/Subscription'
 import { useIsomorphicLayoutEffect } from '../utils/useIsomorphicLayoutEffect'
-import shallowEqual from '../utils/shallowEqual'
-import hoistStatics from '../utils/hoistStatics'
-import warning from '../utils/warning'
+import { shallowEqual } from '../utils/shallowEqual'
+import { hoistNonReactStatics as hoistStatics } from '../utils/hoistStatics'
+import { warning } from '../utils/warning'
 
 import type {
   ReactReduxContextValue,

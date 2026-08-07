@@ -284,4 +284,5 @@ export function createSelectorHook(
  *   return <div>{counter}</div>
  * }
  */
-export const useSelector = /*#__PURE__*/ createSelectorHook()
+export const useSelector: UseSelector<unknown> =
+  /*#__PURE__*/ createSelectorHook()

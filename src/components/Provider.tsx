@@ -54,9 +54,9 @@ export interface ProviderProps<
   children: ReactNode
 }
 
-function Provider<A extends Action<string> = UnknownAction, S = unknown>(
+export function Provider<A extends Action<string> = UnknownAction, S = unknown>(
   providerProps: ProviderProps<A, S>,
-) {
+): React.JSX.Element {
   if (process.env.NODE_ENV !== 'production') {
     // The React Server Components build of React has no effect hooks
     if (typeof useIsomorphicLayoutEffect !== 'function') {
@@ -117,4 +117,3 @@ function Provider<A extends Action<string> = UnknownAction, S = unknown>(
   return <Context.Provider value={contextValue}>{children}</Context.Provider>
 }
 
-export default Provider

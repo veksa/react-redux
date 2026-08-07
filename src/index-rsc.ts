@@ -32,4 +32,4 @@ export {
   throwNotSupportedError as useStore,
 }
 export const ReactReduxContext = {} as any
-export { default as shallowEqual } from './utils/shallowEqual'
+export { shallowEqual } from './utils/shallowEqual'

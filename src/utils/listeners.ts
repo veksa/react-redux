@@ -8,11 +8,18 @@ export type Listener = {
   prev: Listener | null
 }
 
+export type ListenerCollection = {
+  clear(): void
+  notify(): void
+  get(): Listener[]
+  subscribe(callback: () => void): VoidFunc
+}
+
 // encapsulates the subscription logic for connecting a component to the redux store, as
 // well as nesting subscriptions of descendant components, so that we can ensure the
 // ancestor components re-render before descendants
 
-export function createListenerCollection() {
+export function createListenerCollection(): ListenerCollection {
   let first: Listener | null = null
   let last: Listener | null = null
 

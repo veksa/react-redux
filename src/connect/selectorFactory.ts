@@ -1,6 +1,6 @@
 import type { Dispatch, Action } from 'redux'
 import type { ComponentType } from 'react'
-import verifySubselectors from './verifySubselectors'
+import { verifySubselectors } from './verifySubselectors'
 import type { EqualityFn, ExtendedEqualityFn } from '../types'
 
 export type SelectorFactory<S, TProps, TOwnProps, TFactoryOptions> = (
@@ -207,7 +207,7 @@ export interface SelectorFactoryOptions<
 // allowing connect's shouldComponentUpdate to return false if final
 // props have not changed.
 
-export default function finalPropsSelectorFactory<
+export function finalPropsSelectorFactory<
   TStateProps,
   TOwnProps,
   TDispatchProps,
@@ -227,7 +227,7 @@ export default function finalPropsSelectorFactory<
     TMergedProps,
     State
   >,
-) {
+): (nextState: State, nextOwnProps: TOwnProps) => TMergedProps {
   const mapStateToProps = initMapStateToProps(dispatch, options)
   const mapDispatchToProps = initMapDispatchToProps(dispatch, options)
   const mergeProps = initMergeProps(dispatch, options)

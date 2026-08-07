@@ -120,4 +120,5 @@ export function createStoreHook<
  *   return <div>{store.getState()}</div>
  * }
  */
-export const useStore = /*#__PURE__*/ createStoreHook()
+export const useStore: UseStore<Store<unknown, Action, unknown>> =
+  /*#__PURE__*/ createStoreHook()
