@@ -28,10 +28,13 @@ describe('listeners', () => {
 
     listeners.notify()
 
+    // The first chunk runs synchronously inside `notify()`, so `fn1` observes
+    // the state as it was at dispatch time; only `fn2` lands in a scheduled
+    // chunk and therefore sees the bumped version.
     expect(fn1).toBeCalledTimes(1)
-    expect(fn1Result).toBeCalledWith({ a: 1 })
+    expect(fn1Result).toBeCalledWith({ a: 0 })
     expect(fn2).toBeCalledTimes(1)
-    expect(fn2Result).toBeCalledWith({ a: 2 })
+    expect(fn2Result).toBeCalledWith({ a: 1 })
   })
 })
 
@@ -119,10 +122,9 @@ describe('listeners re-entrancy', () => {
     collection.subscribe(() => order.push('a'))
     collection.subscribe(() => order.push('b'))
 
-    collection.notify()
-    flushOne() // 'a' notified
+    collection.notify() // 'a' notified synchronously; 'b' left for a chunk
 
-    // A burst of notifications arrives during the same drain.
+    // A burst of notifications arrives while that chunk is still in flight.
     collection.notify()
     collection.notify()
     collection.notify()
