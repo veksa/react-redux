@@ -2,6 +2,10 @@
   // For building the library.
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
+    // Lets the declarations be emitted with Oxc instead of tsc, which the
+    // TypeScript 7 toolchain requires. Scoped to the build config so the
+    // annotations are only required of `src`, not of tests.
+    "isolatedDeclarations": true,
     "emitDeclarationOnly": true,
     "outDir": "dist",
     "rootDir": "./src"

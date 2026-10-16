@@ -1,11 +1,11 @@
-import isPlainObject from './isPlainObject'
-import warning from './warning'
+import { isPlainObject } from './isPlainObject'
+import { warning } from './warning'
 
-export default function verifyPlainObject(
+export function verifyPlainObject(
   value: unknown,
   displayName: string,
   methodName: string,
-) {
+): void {
   if (!isPlainObject(value)) {
     warning(
       `${methodName}() in ${displayName} must return a plain object. Instead received ${value}.`,

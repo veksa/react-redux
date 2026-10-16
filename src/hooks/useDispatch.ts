@@ -100,4 +100,5 @@ export function createDispatchHook<
  *   )
  * }
  */
-export const useDispatch = /*#__PURE__*/ createDispatchHook()
+export const useDispatch: UseDispatch<Dispatch<UnknownAction>> =
+  /*#__PURE__*/ createDispatchHook()

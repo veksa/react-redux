@@ -1,4 +1,4 @@
-import isPlainObject from '@internal/utils/isPlainObject'
+import { isPlainObject } from '@internal/utils/isPlainObject'
 import vm from 'node:vm'
 class Test {}
 describe('isPlainObject', () => {

@@ -90,7 +90,7 @@ const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor
 const getPrototypeOf = Object.getPrototypeOf
 const objectPrototype = Object.prototype
 
-export default function hoistNonReactStatics<
+export function hoistNonReactStatics<
   Target,
   Source,
   CustomStatic extends {

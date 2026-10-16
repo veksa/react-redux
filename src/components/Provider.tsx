@@ -4,7 +4,7 @@ import type { Action, Store, UnknownAction } from 'redux'
 import type { DevModeCheckFrequency } from '../hooks/useSelector'
 import { createSubscription } from '../utils/Subscription'
 import { useIsomorphicLayoutEffect } from '../utils/useIsomorphicLayoutEffect'
-import type { ReactReduxContextValue } from './Context'
+import type { ReactReduxContextValue, StateAccessListener } from './Context'
 import { ReactReduxContext } from './Context'
 
 export interface ProviderProps<
@@ -51,12 +51,19 @@ export interface ProviderProps<
    */
   identityFunctionCheck?: DevModeCheckFrequency
 
+  /**
+   * Called the first time a `useSelector` selector reads a top-level key of the
+   * store state, once per key for each subscribing selector. It may be called
+   * during render, so it must not trigger React state updates.
+   */
+  onStateAccess?: StateAccessListener
+
   children: ReactNode
 }
 
-function Provider<A extends Action<string> = UnknownAction, S = unknown>(
+export function Provider<A extends Action<string> = UnknownAction, S = unknown>(
   providerProps: ProviderProps<A, S>,
-) {
+): React.JSX.Element {
   if (process.env.NODE_ENV !== 'production') {
     // The React Server Components build of React has no effect hooks
     if (typeof useIsomorphicLayoutEffect !== 'function') {
@@ -72,15 +79,16 @@ function Provider<A extends Action<string> = UnknownAction, S = unknown>(
     }
   }
 
-  const { children, context, serverState, store } = providerProps
+  const { children, context, serverState, store, onStateAccess } = providerProps
 
   const contextValue = React.useMemo(() => {
     const subscription = createSubscription(store)
 
-    const baseContextValue = {
+    const baseContextValue: ReactReduxContextValue<S, A> = {
       store,
       subscription,
       getServerState: serverState != null ? () => serverState : undefined,
+      stateAccessTracking: true,
     }
 
     if (process.env.NODE_ENV === 'production') {
@@ -95,6 +103,27 @@ function Provider<A extends Action<string> = UnknownAction, S = unknown>(
       })
     }
   }, [store, serverState])
+
+  // A stable wrapper around the latest `onStateAccess`, added in a separate
+  // memo so that neither a new listener identity nor gaining or losing one
+  // recreates the subscription.
+  const onStateAccessRef = React.useRef(onStateAccess)
+  onStateAccessRef.current = onStateAccess
+
+  const hasStateAccessListener = onStateAccess !== undefined
+
+  const providedValue = React.useMemo(
+    () =>
+      hasStateAccessListener
+        ? {
+            ...contextValue,
+            onStateAccess: (key: string, selector: Function) => {
+              onStateAccessRef.current?.(key, selector)
+            },
+          }
+        : contextValue,
+    [contextValue, hasStateAccessListener],
+  )
 
   const previousState = React.useMemo(() => store.getState(), [store])
 
@@ -114,7 +143,5 @@ function Provider<A extends Action<string> = UnknownAction, S = unknown>(
 
   const Context = context || ReactReduxContext
 
-  return <Context.Provider value={contextValue}>{children}</Context.Provider>
+  return <Context.Provider value={providedValue}>{children}</Context.Provider>
 }
-
-export default Provider

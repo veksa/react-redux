@@ -1,5 +1,5 @@
 import type { Action, Dispatch } from 'redux'
-import verifyPlainObject from '../utils/verifyPlainObject'
+import { verifyPlainObject } from '../utils/verifyPlainObject'
 import { createInvalidArgFactory } from './invalidArgFactory'
 import type { MergeProps } from './selectorFactory'
 import type { EqualityFn } from '../types'
@@ -69,7 +69,14 @@ export function mergePropsFactory<
   TMergedProps,
 >(
   mergeProps?: MergeProps<TStateProps, TDispatchProps, TOwnProps, TMergedProps>,
-) {
+): (
+  dispatch: Dispatch<Action<string>>,
+  options: {
+    readonly displayName: string
+    readonly wrappedComponentName: string
+    readonly areMergedPropsEqual: EqualityFn<TMergedProps>
+  },
+) => MergeProps<TStateProps, TDispatchProps, TOwnProps, TMergedProps> {
   return !mergeProps
     ? () => defaultMergeProps
     : typeof mergeProps === 'function'

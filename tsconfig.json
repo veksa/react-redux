@@ -9,5 +9,7 @@
     "rootDir": "."
   },
   "include": ["."],
-  "exclude": ["dist*", "examples", "docs"]
+  // The benchmark scripts are plain `.mjs`; with `allowJs`/`checkJs` they would
+  // otherwise be pulled into type-checking.
+  "exclude": ["dist*", "examples", "docs", "benchmark"]
 }

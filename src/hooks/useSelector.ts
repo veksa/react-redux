@@ -1,9 +1,8 @@
-//import * as React from 'react'
-import { useSyncExternalStoreWithSelector } from 'use-sync-external-store/with-selector.js'
 import type { ReactReduxContextValue } from '../components/Context'
 import { ReactReduxContext } from '../components/Context'
 import type { EqualityFn } from '../types'
 import { React } from '../utils/react'
+import { useSyncExternalStoreWithSelector } from '../utils/useSyncExternalStoreWithSelector'
 import {
   createReduxContextHook,
   useReduxContext as useDefaultReduxContext,
@@ -90,7 +89,9 @@ export interface UseSelector<StateType = unknown> {
    */
   <TState extends StateType = StateType, Selected = unknown>(
     selector: (state: TState) => Selected,
-    equalityFnOrOptions?: EqualityFn<Selected> | UseSelectorOptions<Selected>,
+    equalityFnOrOptions?:
+      | EqualityFn<NoInfer<Selected>>
+      | UseSelectorOptions<NoInfer<Selected>>,
   ): Selected
 
   /**
@@ -161,9 +162,23 @@ export function createSelectorHook(
 
     const reduxContext = useReduxContext()
 
-    const { store, subscription, getServerState } = reduxContext
+    const { store, subscription, getServerState, onStateAccess } = reduxContext
 
     const firstRun = React.useRef(true)
+
+    // The listener and selector are read through a ref when a key is first
+    // accessed, so a new listener identity (e.g. from a nested context
+    // override) does not invalidate the memoized selection.
+    const accessRef = React.useRef({ onStateAccess, selector })
+    accessRef.current.onStateAccess = onStateAccess
+    accessRef.current.selector = selector
+
+    const onAccess = React.useCallback((key: string) => {
+      const { onStateAccess, selector } = accessRef.current
+      if (onStateAccess) {
+        onStateAccess(key, selector)
+      }
+    }, [])
 
     const wrappedSelector = React.useCallback<typeof selector>(
       {
@@ -246,6 +261,9 @@ export function createSelectorHook(
       getServerState || store.getState,
       wrappedSelector,
       equalityFn,
+      // Only passed while a listener is present: gaining or losing one starts a
+      // fresh memoized instance, so the new listener sees every key read.
+      onStateAccess ? onAccess : undefined,
     )
 
     React.useDebugValue(selectedState)
@@ -283,4 +301,5 @@ export function createSelectorHook(
  *   return <div>{counter}</div>
  * }
  */
-export const useSelector = /*#__PURE__*/ createSelectorHook()
+export const useSelector: UseSelector<unknown> =
+  /*#__PURE__*/ createSelectorHook()
