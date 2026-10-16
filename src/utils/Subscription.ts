@@ -1,4 +1,4 @@
-import type { VoidFunc } from './listeners';
+import type { VoidFunc } from './listeners'
 import { createListenerCollection } from './listeners'
 
 type ListenerCollection = ReturnType<typeof createListenerCollection>

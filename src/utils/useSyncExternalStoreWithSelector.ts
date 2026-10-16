@@ -17,13 +17,13 @@ export function useSyncExternalStoreWithSelector<Snapshot, Selection>(
   // Use this to track the rendered snapshot.
   const instRef = useRef<
     | {
-    hasValue: true
-    value: Selection
-  }
+        hasValue: true
+        value: Selection
+      }
     | {
-    hasValue: false
-    value: null
-  }
+        hasValue: false
+        value: null
+      }
     | null
   >(null)
 
@@ -162,7 +162,7 @@ export function useSyncExternalStoreWithSelector<Snapshot, Selection>(
   const value = useSyncExternalStore(
     subscribe,
     getSelection,
-    getServerSelection
+    getServerSelection,
   )
 
   useEffect(() => {

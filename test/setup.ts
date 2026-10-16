@@ -1,25 +1,26 @@
-import "@testing-library/jest-dom/vitest"
+import '@testing-library/jest-dom/vitest'
 
-(function mockMessageChannel() {
+;(function mockMessageChannel() {
   const MessageChannel = function () {
-    let onmessage: Function;
+    let onmessage: Function
     return {
       port1: {
         set onmessage(cb: Function) {
-          onmessage = cb;
+          onmessage = cb
         },
-        close: () => ({})
+        close: () => ({}),
       },
       port2: {
         postMessage: (data: unknown) => {
-          const stopPropagation = () => ({});
+          const stopPropagation = () => ({})
 
-          onmessage?.({ data, stopPropagation });
+          onmessage?.({ data, stopPropagation })
         },
-        close: () => ({})
+        close: () => ({}),
       },
-    };
-  };
+    }
+  }
 
-  global.MessageChannel = MessageChannel as unknown as typeof global.MessageChannel;
-})();
+  global.MessageChannel =
+    MessageChannel as unknown as typeof global.MessageChannel
+})()

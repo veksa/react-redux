@@ -103,7 +103,7 @@ export function createListenerCollection(): ListenerCollection {
       const listener: Listener = (last = {
         callback,
         next: null,
-        prev: last
+        prev: last,
       })
 
       if (listener.prev) {
@@ -127,6 +127,6 @@ export function createListenerCollection(): ListenerCollection {
           first = listener.next
         }
       }
-    }
+    },
   }
 }

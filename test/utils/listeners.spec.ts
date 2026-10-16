@@ -8,7 +8,7 @@ describe('listeners', () => {
     // Run each scheduled chunk synchronously, bumping the "version" of the
     // state per chunk so we can prove listeners in different chunks observe the
     // state as it was when their chunk ran.
-    vi.spyOn(scheduler, 'scheduleCallback').mockImplementation(callback => {
+    vi.spyOn(scheduler, 'scheduleCallback').mockImplementation((callback) => {
       state.a = state.a + 1
       callback()
     })
@@ -58,7 +58,7 @@ describe('listeners re-entrancy', () => {
 
     // Fake scheduler: capture each chunk instead of running it, so the test can
     // deterministically interleave a re-entrant notify() between chunks.
-    vi.spyOn(scheduler, 'scheduleCallback').mockImplementation(callback => {
+    vi.spyOn(scheduler, 'scheduleCallback').mockImplementation((callback) => {
       scheduled.push(callback)
     })
     // Yield after every listener → exactly one listener per chunk.
