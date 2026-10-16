@@ -50,6 +50,9 @@ interface ProviderProps<A extends Action<string> = UnknownAction, S = unknown> {
   /** Global configuration for the `useSelector` identity function check */
   identityFunctionCheck?: DevModeCheckFrequency
 
+  /** Called on the first read of each top-level state key by a `useSelector` selector */
+  onStateAccess?: (key: string, selector: Function) => void
+
   /** The top-level React elements in your component tree, such as `<App />` **/
   children: ReactNode
 }
@@ -62,6 +65,42 @@ You may provide a context instance. If you do so, you will need to provide the s
 > Invariant Violation
 >
 > Could not find "store" in the context of "Connect(MyComponent)". Either wrap the root component in a `<Provider>`, or pass a custom React context provider to `<Provider>` and the corresponding React context consumer to Connect(Todo) in connect options.
+
+## Observing State Reads
+
+`useSelector` tracks which top-level keys of the store state each selector reads. Pass `onStateAccess` to be told about them: it is called the first time a selector reads a given key, once per key for each component using `useSelector`. This is useful for dev tooling, for example to check that every slice a component reads has been loaded.
+
+```tsx
+<Provider
+  store={store}
+  onStateAccess={(key, selector) => {
+    console.log(`${selector.name} reads state.${key}`)
+  }}
+>
+  <App />
+</Provider>
+```
+
+The listener may be called during render, so it must not trigger React state updates. Only string keys are reported, and only reads made through `useSelector`: `connect` does not report them.
+
+The listener can be replaced for part of the tree by rendering a nested `ReactReduxContext.Provider` whose value spreads the parent context value and sets its own `onStateAccess`. Keep the parent's `store` and `subscription` so that subscription ordering is preserved. The context value also carries `stateAccessTracking: true`, which libraries can use to detect support for `onStateAccess`.
+
+```tsx
+function Scope({ children }: { children: ReactNode }) {
+  const parent = useContext(ReactReduxContext)!
+  const value = useMemo(
+    () => ({ ...parent, onStateAccess: scopedListener }),
+    [parent],
+  )
+  return (
+    <ReactReduxContext.Provider value={value}>
+      {children}
+    </ReactReduxContext.Provider>
+  )
+}
+```
+
+A new `onStateAccess` function on each render does not re-run selectors or re-render consumers.
 
 ## React 18 SSR Usage
 
