@@ -13,6 +13,9 @@ export function useSyncExternalStoreWithSelector<Snapshot, Selection>(
   getServerSnapshot: void | null | (() => Snapshot),
   selector: (snapshot: Snapshot) => Selection,
   isEqual?: (a: Selection, b: Selection) => boolean,
+  // Called the first time `selector` reads a given top-level string key of the
+  // snapshot, i.e. once per key for this memoized selector instance.
+  onAccess?: (key: string) => void,
 ): Selection {
   // Use this to track the rendered snapshot.
   const instRef = useRef<
@@ -63,6 +66,10 @@ export function useSyncExternalStoreWithSelector<Snapshot, Selection>(
 
             if (accessedProps.indexOf(propertyName) === -1) {
               accessedProps.push(propertyName)
+
+              if (onAccess !== undefined && typeof prop === 'string') {
+                onAccess(prop)
+              }
             }
 
             const value = Reflect.get(target, prop, receiver)
@@ -157,7 +164,7 @@ export function useSyncExternalStoreWithSelector<Snapshot, Selection>(
         ? undefined
         : () => memoizedSelector(maybeGetServerSnapshot())
     return [getSnapshotWithSelector, getServerSnapshotWithSelector]
-  }, [getSnapshot, getServerSnapshot, selector, isEqual])
+  }, [getSnapshot, getServerSnapshot, selector, isEqual, onAccess])
 
   const value = useSyncExternalStore(
     subscribe,

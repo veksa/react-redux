@@ -11,7 +11,10 @@ import { Provider } from './components/Provider'
 import { batch } from './utils/batch'
 
 export { ReactReduxContext } from './components/Context'
-export type { ReactReduxContextValue } from './components/Context'
+export type {
+  ReactReduxContextValue,
+  StateAccessListener,
+} from './components/Context'
 
 export type { ProviderProps } from './components/Provider'
 

@@ -162,9 +162,23 @@ export function createSelectorHook(
 
     const reduxContext = useReduxContext()
 
-    const { store, subscription, getServerState } = reduxContext
+    const { store, subscription, getServerState, onStateAccess } = reduxContext
 
     const firstRun = React.useRef(true)
+
+    // The listener and selector are read through a ref when a key is first
+    // accessed, so a new listener identity (e.g. from a nested context
+    // override) does not invalidate the memoized selection.
+    const accessRef = React.useRef({ onStateAccess, selector })
+    accessRef.current.onStateAccess = onStateAccess
+    accessRef.current.selector = selector
+
+    const onAccess = React.useCallback((key: string) => {
+      const { onStateAccess, selector } = accessRef.current
+      if (onStateAccess) {
+        onStateAccess(key, selector)
+      }
+    }, [])
 
     const wrappedSelector = React.useCallback<typeof selector>(
       {
@@ -247,6 +261,9 @@ export function createSelectorHook(
       getServerState || store.getState,
       wrappedSelector,
       equalityFn,
+      // Only passed while a listener is present: gaining or losing one starts a
+      // fresh memoized instance, so the new listener sees every key read.
+      onStateAccess ? onAccess : undefined,
     )
 
     React.useDebugValue(selectedState)
